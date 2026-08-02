@@ -97,14 +97,12 @@ export default function AdminDashboard() {
 
   const handleUpdateOrderStatus = async (orderId: string, newStatus: 'approved' | 'rejected') => {
     try {
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('orders')
         .update({ status: newStatus })
-        .eq('id', orderId)
-        .select();
+        .eq('id', orderId);
 
       if (error) throw error;
-
       fetchOrders();
     } catch (error: any) {
       console.error('Update order error:', error);
@@ -127,20 +125,34 @@ export default function AdminDashboard() {
     setUploading(true);
 
     try {
+      // 1. Linisin ang pangalan ng file para iwasang magkaproblema sa special characters o spaces
       const fileExt = file.name.split('.').pop();
-      const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+      const sanitizedBaseName = file.name
+        .substring(0, file.name.lastIndexOf('.'))
+        .replace(/[^a-zA-Z0-9]/g, '_');
+      const fileName = `${Date.now()}-${sanitizedBaseName}.${fileExt}`;
       const filePath = `uploads/${fileName}`;
 
+      // 2. I-upload ang file sa Supabase Storage Bucket ('educational-resources')
       const { error: storageError } = await supabase.storage
         .from('educational-resources')
-        .upload(filePath, file);
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: false,
+        });
 
       if (storageError) throw storageError;
 
+      // 3. Kunin ang Public URL ng na-upload na file
       const { data: urlData } = supabase.storage
         .from('educational-resources')
         .getPublicUrl(filePath);
 
+      if (!urlData || !urlData.publicUrl) {
+        throw new Error('Hindi makuha ang public URL ng file mula sa storage.');
+      }
+
+      // 4. I-save ang mga detalye at file URL sa 'resources' table sa database
       const { error: dbError } = await supabase.from('resources').insert([
         {
           title,
@@ -158,9 +170,10 @@ export default function AdminDashboard() {
 
       setStatusMessage({
         type: 'success',
-        text: 'Matagumpay na na-upload at na-publish ang Learning Material!',
+        text: 'Matagumpay na na-upload at na-publish ang Learning Material sa database!',
       });
 
+      // Reset Form Fields
       setTitle('');
       setDescription('');
       setSubject('');
@@ -172,6 +185,7 @@ export default function AdminDashboard() {
       const fileInput = document.getElementById('file-input') as HTMLInputElement;
       if (fileInput) fileInput.value = '';
 
+      // Refresh data lists
       fetchResources();
       fetchOrders();
     } catch (error: any) {
@@ -253,7 +267,7 @@ export default function AdminDashboard() {
       </header>
 
       <div className="max-w-6xl mx-auto p-4 md:p-8 space-y-6">
-        {/* Navigation Tabs - Responsive Scrollable on Mobile */}
+        {/* Navigation Tabs */}
         <div className="flex gap-2 bg-white p-1.5 rounded-2xl border border-slate-200/80 shadow-xs overflow-x-auto">
           <button
             onClick={() => setActiveTab('orders')}
