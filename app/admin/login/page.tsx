@@ -40,8 +40,8 @@ export default function AdminLoginPage() {
     }
 
     setLoading(false);
-    // 3. I-redirect sa Admin Upload page
-    router.push('/admin/upload');
+    // 3. BAGONG BAGONG ROUTE: I-redirect diretso sa Admin Dashboard page
+    router.push('/admin/dashboard');
   };
 
   return (
