@@ -31,7 +31,7 @@ export default function TeacherDashboard() {
   // Theme State (Dark / Light Mode)
   const [darkMode, setDarkMode] = useState(false);
 
-  const [activeTab, setActiveTab] = useState<'store' | 'purchases'>('store');
+  const [activeTab, setActiveTab] = useState<'store' | 'purchases' | 'chat'>('store');
   const [resources, setResources] = useState<Resource[]>([]);
   const [myOrders, setMyOrders] = useState<Order[]>([]);
 
@@ -41,6 +41,11 @@ export default function TeacherDashboard() {
   const [submitting, setSubmitting] = useState(false);
   const [orderSuccess, setOrderSuccess] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+
+  // Chat States
+  const [messages, setMessages] = useState<any[]>([]);
+  const [newMessage, setNewMessage] = useState('');
+  const ADMIN_ID = process.env.NEXT_PUBLIC_ADMIN_UUID || 'ADMIN_UUID_DITO'; // Ilagay ang Admin UUID o kunin dynamic
 
   const fetchResources = async () => {
     const { data, error } = await supabase
@@ -62,6 +67,43 @@ export default function TeacherDashboard() {
 
     if (!error) setMyOrders(data || []);
   }, []);
+
+  // Fetch Chat History & Realtime Subscription
+  useEffect(() => {
+    if (!user) return;
+
+    const fetchMessages = async () => {
+      const { data } = await supabase
+        .from('messages')
+        .select('*')
+        .or(`and(sender_id.eq.${user.id},receiver_id.eq.admin),and(sender_id.eq.admin,receiver_id.eq.${user.id})`)
+        .order('created_at', { ascending: true });
+
+      if (data) setMessages(data);
+    };
+
+    fetchMessages();
+
+    // Realtime Listener para sa chat
+    const channel = supabase
+      .channel('teacher-chat-channel')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+        },
+        (payload) => {
+          setMessages((prev) => [...prev, payload.new]);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user]);
 
   useEffect(() => {
     const checkUser = async () => {
@@ -131,6 +173,23 @@ export default function TeacherDashboard() {
     }
   };
 
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newMessage.trim() || !user) return;
+
+    const { error } = await supabase.from('messages').insert([
+      {
+        sender_id: user.id,
+        receiver_id: 'admin', // O pwede ring specific admin UUID
+        content: newMessage,
+      },
+    ]);
+
+    if (!error) {
+      setNewMessage('');
+    }
+  };
+
   const handleLogout = async () => {
     await supabase.auth.signOut();
     router.push('/login');
@@ -193,7 +252,7 @@ export default function TeacherDashboard() {
       </header>
 
       <div className="max-w-6xl mx-auto p-6 md:p-8">
-        {/* Navigation Tabs */}
+        {/* Navigation Tabs (Idinagdag ang Support Chat Tab) */}
         <div className={`flex gap-6 border-b mb-8 ${darkMode ? 'border-slate-800' : 'border-slate-200'}`}>
           <button
             onClick={() => setActiveTab('store')}
@@ -205,6 +264,7 @@ export default function TeacherDashboard() {
           >
             <span>📚 Storefront / Materials</span>
           </button>
+          
           <button
             onClick={() => setActiveTab('purchases')}
             className={`pb-3 text-sm font-bold border-b-2 transition cursor-pointer flex items-center gap-2 ${
@@ -217,6 +277,17 @@ export default function TeacherDashboard() {
             <span className={`px-2 py-0.5 rounded-full text-xs ${darkMode ? 'bg-slate-800 text-blue-400' : 'bg-blue-50 text-blue-600'}`}>
               {myOrders.filter((o) => o.status === 'approved').length}
             </span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('chat')}
+            className={`pb-3 text-sm font-bold border-b-2 transition cursor-pointer flex items-center gap-2 ${
+              activeTab === 'chat'
+                ? 'border-blue-600 text-blue-500'
+                : darkMode ? 'border-transparent text-slate-400 hover:text-slate-200' : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            <span>💬 Support Chat sa Admin</span>
           </button>
         </div>
 
@@ -349,6 +420,60 @@ export default function TeacherDashboard() {
                 </div>
               ))
             )}
+          </div>
+        )}
+
+        {/* TAB 3: SUPPORT CHAT SA ADMIN */}
+        {activeTab === 'chat' && (
+          <div className={`border rounded-3xl p-6 shadow-xl flex flex-col h-[550px] ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+            <div className="flex items-center justify-between pb-4 border-b mb-4 border-slate-200 dark:border-slate-800">
+              <div>
+                <h3 className="font-bold text-sm">Real-time Direct Chat kay Admin</h3>
+                <p className={`text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                  Magtanong tungkol sa iyong order o bayad. Sasagot agad ang admin dito.
+                </p>
+              </div>
+              <span className="w-3 h-3 bg-emerald-500 rounded-full animate-pulse"></span>
+            </div>
+
+            {/* Listahan ng Mensahe */}
+            <div className="flex-1 overflow-y-auto space-y-3 p-2">
+              {messages.length === 0 ? (
+                <div className="text-center text-xs text-slate-400 my-auto py-20">
+                  Wala pang mensahe. Simulan nang mag-chat sa ibaba!
+                </div>
+              ) : (
+                messages.map((msg, index) => (
+                  <div
+                    key={index}
+                    className={`p-3.5 rounded-2xl text-xs max-w-[75%] leading-relaxed ${
+                      msg.sender_id === user?.id
+                        ? 'ml-auto bg-blue-600 text-white rounded-br-none'
+                        : 'mr-auto bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-bl-none'
+                    }`}
+                  >
+                    {msg.content}
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Input Form */}
+            <form onSubmit={handleSendMessage} className="pt-4 border-t border-slate-200 dark:border-slate-800 flex gap-2">
+              <input
+                type="text"
+                value={newMessage}
+                onChange={(e) => setNewMessage(e.target.value)}
+                placeholder="I-type ang iyong concern o mensahe dito..."
+                className={`flex-1 border rounded-2xl p-3.5 text-xs focus:outline-none focus:border-blue-500 transition ${darkMode ? 'bg-slate-950 border-slate-800 text-slate-100 placeholder:text-slate-600' : 'bg-slate-50 border-slate-200 text-slate-800 placeholder:text-slate-400'}`}
+              />
+              <button
+                type="submit"
+                className="bg-blue-600 hover:bg-blue-500 text-white px-6 rounded-2xl text-xs font-bold transition cursor-pointer shadow-md shadow-blue-600/25"
+              >
+                Send
+              </button>
+            </form>
           </div>
         )}
 
