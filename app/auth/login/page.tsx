@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -11,12 +12,14 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
+  // Dark / Light Mode State
+  const [darkMode, setDarkMode] = useState(false);
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setErrorMessage('');
 
-    // 1. Mag-log in gamit ang Supabase Auth
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
@@ -29,76 +32,119 @@ export default function LoginPage() {
     }
 
     const user = data.user;
-
-    // 2. Kunin ang role mula sa User Metadata (default: 'customer' kung walang role na naka-assign)
     const userRole = user?.user_metadata?.role || 'customer';
-
-    // Pwede mo rin i-check kung partikular na email ang Admin
     const isAdmin = userRole === 'admin' || user?.email === 'admin@edudepot.ph';
 
-    // 3. I-redirect sa tamang Dashboard batay sa Role
     if (isAdmin) {
       router.push('/admin/dashboard');
     } else if (userRole === 'customer' || userRole === 'user') {
-      router.push('/customer/dashboard'); // O pwedeng router.push('/shop')
+      router.push('/customer/dashboard');
     } else {
-      router.push('/dashboard'); // Teacher/Staff Dashboard
+      router.push('/dashboard');
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-100 p-4">
-      <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm max-w-md w-full">
-        <div className="text-center mb-6">
-          <h1 className="text-2xl font-bold text-slate-800">EduDepot PH</h1>
-          <p className="text-xs text-slate-500 mt-1">
-            Mag-login para ma-access ang iyong account
-          </p>
+    <div className={`min-h-screen w-full flex flex-col justify-between font-sans p-6 md:p-10 transition-colors duration-300 ${darkMode ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
+      
+      {/* NAVIGATION BAR: BACK TO HOME & THEME TOGGLE */}
+      <div className="w-full max-w-md mx-auto flex justify-between items-center">
+        <Link 
+          href="/"
+          className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition shadow-sm cursor-pointer border ${darkMode ? 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800 hover:text-white' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'}`}
+        >
+          <span>←</span>
+          <span>Back to Homepage</span>
+        </Link>
+
+        <button
+          onClick={() => setDarkMode(!darkMode)}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition shadow-sm cursor-pointer border flex items-center gap-2 ${darkMode ? 'bg-slate-900 border-slate-800 text-amber-400 hover:bg-slate-800' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'}`}
+        >
+          {darkMode ? '☀️ Light Mode' : '🌙 Dark Mode'}
+        </button>
+      </div>
+
+      {/* LOGIN CARD CONTAINER */}
+      <div className="w-full flex items-center justify-center my-auto py-8">
+        <div className={`w-full max-w-md p-8 md:p-10 rounded-3xl border shadow-xl transition-all duration-300 ${darkMode ? 'bg-slate-900/90 border-slate-800 text-white shadow-slate-950/50' : 'bg-white border-slate-200/80 text-slate-900 shadow-slate-200/50'}`}>
+          
+          <div className="text-center mb-8">
+            <div className="w-12 h-12 rounded-2xl bg-blue-600 flex items-center justify-center text-white font-black text-lg mx-auto mb-3 shadow-md shadow-blue-500/30">
+              E
+            </div>
+            <h1 className="text-2xl font-black tracking-tight">EduDepot PH</h1>
+            <p className={`text-xs mt-1.5 font-medium ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+              Mag-login para ma-access ang iyong account
+            </p>
+          </div>
+
+          {errorMessage && (
+            <div className="bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs p-4 rounded-2xl mb-6 font-medium">
+              {errorMessage}
+            </div>
+          )}
+
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div>
+              <label className={`block text-[11px] font-bold uppercase tracking-wider mb-2 ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>
+                Email Address
+              </label>
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="customer@email.com"
+                className={`w-full border rounded-2xl px-4 py-3.5 text-xs focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition ${darkMode ? 'bg-slate-950 border-slate-800 text-slate-100 placeholder:text-slate-600' : 'bg-slate-50 border-slate-200 text-slate-800 placeholder:text-slate-400'}`}
+              />
+            </div>
+
+            <div>
+              <label className={`block text-[11px] font-bold uppercase tracking-wider mb-2 ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>
+                Password
+              </label>
+              <input
+                type="password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                className={`w-full border rounded-2xl px-4 py-3.5 text-xs focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition ${darkMode ? 'bg-slate-950 border-slate-800 text-slate-100 placeholder:text-slate-600' : 'bg-slate-50 border-slate-200 text-slate-800 placeholder:text-slate-400'}`}
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-2xl text-xs transition cursor-pointer shadow-md shadow-blue-500/25 disabled:opacity-50 mt-4 flex items-center justify-center gap-2"
+            >
+              {loading ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  <span>Pumapasok...</span>
+                </>
+              ) : (
+                <span>Log In</span>
+              )}
+            </button>
+          </form>
+
+          <div className={`text-center mt-6 pt-6 border-t ${darkMode ? 'border-slate-800' : 'border-slate-100'}`}>
+            <p className={`text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+              Wala pang account?{' '}
+              <Link href="/signup" className="text-blue-500 font-bold hover:underline">
+                Mag-sign up
+              </Link>
+            </p>
+          </div>
         </div>
+      </div>
 
-        {errorMessage && (
-          <div className="bg-rose-50 border border-rose-200 text-rose-700 text-xs p-3 rounded-xl mb-4">
-            {errorMessage}
-          </div>
-        )}
-
-        <form onSubmit={handleLogin} className="space-y-4">
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">
-              Email Address
-            </label>
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="customer@email.com"
-              className="w-full border border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 rounded-xl p-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">
-              Password
-            </label>
-            <input
-              type="password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
-              className="w-full border border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 rounded-xl p-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-3 rounded-xl text-xs transition disabled:opacity-50"
-          >
-            {loading ? 'Pumapasok...' : 'Log In'}
-          </button>
-        </form>
+      <div className="w-full max-w-md mx-auto text-center">
+        <p className={`text-[10px] ${darkMode ? 'text-slate-600' : 'text-slate-400'}`}>
+          EduDepot PH • Secure Teacher Portal
+        </p>
       </div>
     </div>
   );
