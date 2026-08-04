@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -28,7 +28,7 @@ export default function TeacherDashboard() {
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
-  // Theme State (Dark / Light Mode)
+  // Theme State
   const [darkMode, setDarkMode] = useState(false);
 
   const [activeTab, setActiveTab] = useState<'store' | 'purchases' | 'chat'>('store');
@@ -45,7 +45,9 @@ export default function TeacherDashboard() {
   // Chat States
   const [messages, setMessages] = useState<any[]>([]);
   const [newMessage, setNewMessage] = useState('');
-  const ADMIN_ID = process.env.NEXT_PUBLIC_ADMIN_UUID || 'ADMIN_UUID_DITO'; // Ilagay ang Admin UUID o kunin dynamic
+  const [chatError, setChatError] = useState('');
+  const [sending, setSending] = useState(false);
+  const chatEndRef = useRef<HTMLDivElement>(null);
 
   const fetchResources = async () => {
     const { data, error } = await supabase
@@ -68,25 +70,39 @@ export default function TeacherDashboard() {
     if (!error) setMyOrders(data || []);
   }, []);
 
-  // Fetch Chat History & Realtime Subscription
+  // ==================== FIXED CHAT FETCH ====================
   useEffect(() => {
     if (!user) return;
 
     const fetchMessages = async () => {
-      const { data } = await supabase
+      if (!user?.id) return;
+
+      const { data, error } = await supabase
         .from('messages')
         .select('*')
-        .or(`and(sender_id.eq.${user.id},receiver_id.eq.admin),and(sender_id.eq.admin,receiver_id.eq.${user.id})`)
+        .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`)
         .order('created_at', { ascending: true });
 
-      if (data) setMessages(data);
+      if (error) {
+        console.error('Fetch messages error:', error);
+        console.error('Full error details:', JSON.stringify(error, null, 2));
+        setChatError('Hindi makuha ang mga mensahe: ' + (error.message || 'Unknown error'));
+      } else {
+        const filtered = (data || []).filter(
+          (msg: any) =>
+            (msg.sender_id === user.id && msg.receiver_id === 'admin') ||
+            (msg.sender_id === 'admin' && msg.receiver_id === user.id)
+        );
+        setMessages(filtered);
+        setChatError('');
+      }
     };
 
     fetchMessages();
 
-    // Realtime Listener para sa chat
+    // Realtime
     const channel = supabase
-      .channel('teacher-chat-channel')
+      .channel(`teacher-chat-${user.id}`)
       .on(
         'postgres_changes',
         {
@@ -95,7 +111,16 @@ export default function TeacherDashboard() {
           table: 'messages',
         },
         (payload) => {
-          setMessages((prev) => [...prev, payload.new]);
+          const newMsg = payload.new as any;
+          if (
+            (newMsg.sender_id === user.id && newMsg.receiver_id === 'admin') ||
+            (newMsg.sender_id === 'admin' && newMsg.receiver_id === user.id)
+          ) {
+            setMessages((prev) => {
+              if (prev.some((m) => m.id === newMsg.id)) return prev;
+              return [...prev, newMsg];
+            });
+          }
         }
       )
       .subscribe();
@@ -104,6 +129,11 @@ export default function TeacherDashboard() {
       supabase.removeChannel(channel);
     };
   }, [user]);
+
+  // Auto scroll
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
 
   useEffect(() => {
     const checkUser = async () => {
@@ -173,20 +203,50 @@ export default function TeacherDashboard() {
     }
   };
 
+  // ==================== IMPROVED SEND WITH FULL ERROR LOGGING ====================
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMessage.trim() || !user) return;
+    if (!newMessage.trim() || !user || sending) return;
 
-    const { error } = await supabase.from('messages').insert([
-      {
-        sender_id: user.id,
-        receiver_id: 'admin', // O pwede ring specific admin UUID
-        content: newMessage,
-      },
-    ]);
+    setSending(true);
+    setChatError('');
 
-    if (!error) {
-      setNewMessage('');
+    const content = newMessage.trim();
+    setNewMessage('');
+
+    console.log('Trying to send:', {
+      sender_id: user.id,
+      receiver_id: 'admin',
+      content,
+    });
+
+    const { data, error } = await supabase
+      .from('messages')
+      .insert([
+        {
+          sender_id: user.id,
+          receiver_id: 'admin',
+          content,
+        },
+      ])
+      .select();
+
+    setSending(false);
+
+    if (error) {
+      console.error('Send message error FULL:', error);
+      console.error('Error code:', error.code);
+      console.error('Error message:', error.message);
+      console.error('Error details:', error.details);
+      console.error('Error hint:', error.hint);
+      setChatError('Hindi naipadala: ' + (error.message || JSON.stringify(error)));
+      setNewMessage(content);
+    } else if (data && data[0]) {
+      console.log('Success! Message sent:', data[0]);
+      setMessages((prev) => {
+        if (prev.some((m) => m.id === data[0].id)) return prev;
+        return [...prev, data[0]];
+      });
     }
   };
 
@@ -225,7 +285,6 @@ export default function TeacherDashboard() {
           </div>
         </div>
 
-        {/* Navigation Actions: Home Link, Theme Toggle & Logout */}
         <div className="flex items-center gap-2.5 w-full md:w-auto justify-end">
           <Link 
             href="/"
@@ -252,7 +311,7 @@ export default function TeacherDashboard() {
       </header>
 
       <div className="max-w-6xl mx-auto p-6 md:p-8">
-        {/* Navigation Tabs (Idinagdag ang Support Chat Tab) */}
+        {/* Navigation Tabs */}
         <div className={`flex gap-6 border-b mb-8 ${darkMode ? 'border-slate-800' : 'border-slate-200'}`}>
           <button
             onClick={() => setActiveTab('store')}
@@ -436,6 +495,13 @@ export default function TeacherDashboard() {
               <span className="w-3 h-3 bg-emerald-500 rounded-full animate-pulse"></span>
             </div>
 
+            {/* Error Message */}
+            {chatError && (
+              <div className="mb-3 p-3 rounded-xl text-xs bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                {chatError}
+              </div>
+            )}
+
             {/* Listahan ng Mensahe */}
             <div className="flex-1 overflow-y-auto space-y-3 p-2">
               {messages.length === 0 ? (
@@ -443,9 +509,9 @@ export default function TeacherDashboard() {
                   Wala pang mensahe. Simulan nang mag-chat sa ibaba!
                 </div>
               ) : (
-                messages.map((msg, index) => (
+                messages.map((msg) => (
                   <div
-                    key={index}
+                    key={msg.id}
                     className={`p-3.5 rounded-2xl text-xs max-w-[75%] leading-relaxed ${
                       msg.sender_id === user?.id
                         ? 'ml-auto bg-blue-600 text-white rounded-br-none'
@@ -453,9 +519,13 @@ export default function TeacherDashboard() {
                     }`}
                   >
                     {msg.content}
+                    <p className={`text-[9px] mt-1 ${msg.sender_id === user?.id ? 'text-blue-200' : 'text-slate-400'}`}>
+                      {new Date(msg.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                    </p>
                   </div>
                 ))
               )}
+              <div ref={chatEndRef} />
             </div>
 
             {/* Input Form */}
@@ -465,13 +535,15 @@ export default function TeacherDashboard() {
                 value={newMessage}
                 onChange={(e) => setNewMessage(e.target.value)}
                 placeholder="I-type ang iyong concern o mensahe dito..."
+                disabled={sending}
                 className={`flex-1 border rounded-2xl p-3.5 text-xs focus:outline-none focus:border-blue-500 transition ${darkMode ? 'bg-slate-950 border-slate-800 text-slate-100 placeholder:text-slate-600' : 'bg-slate-50 border-slate-200 text-slate-800 placeholder:text-slate-400'}`}
               />
               <button
                 type="submit"
-                className="bg-blue-600 hover:bg-blue-500 text-white px-6 rounded-2xl text-xs font-bold transition cursor-pointer shadow-md shadow-blue-600/25"
+                disabled={sending || !newMessage.trim()}
+                className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white px-6 rounded-2xl text-xs font-bold transition cursor-pointer shadow-md shadow-blue-600/25"
               >
-                Send
+                {sending ? '...' : 'Send'}
               </button>
             </form>
           </div>
