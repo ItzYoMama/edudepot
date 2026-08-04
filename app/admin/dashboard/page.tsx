@@ -159,6 +159,8 @@ export default function AdminDashboard() {
       const otherId = msg.sender_id === 'admin' ? msg.receiver_id : msg.sender_id;
       if (otherId === 'admin') return;
 
+      const isUnreadForAdmin = msg.receiver_id === 'admin' && !msg.is_read;
+
       if (!map.has(otherId)) {
         map.set(otherId, {
           userId: otherId,
@@ -166,14 +168,16 @@ export default function AdminDashboard() {
           email: msg.customer_email || '',
           lastMessage: msg.content,
           lastAt: msg.created_at,
-          unread: msg.receiver_id === 'admin' && !msg.is_read ? 1 : 0,
+          unread: isUnreadForAdmin ? 1 : 0,
         });
       } else {
         const existing = map.get(otherId)!;
-        if (msg.receiver_id === 'admin' && !msg.is_read) {
+        if (isUnreadForAdmin) {
           existing.unread += 1;
         }
-        if (msg.customer_name) existing.name = msg.customer_name;
+        if (msg.customer_name && (!existing.name || existing.name.startsWith('Customer'))) {
+          existing.name = msg.customer_name;
+        }
         if (msg.customer_email) existing.email = msg.customer_email;
       }
     });
@@ -195,13 +199,17 @@ export default function AdminDashboard() {
     if (!error) setChatMessages(data || []);
     setChatLoading(false);
 
-    // Mark as read
-    await supabase
+    // Mark as read gamit ang direktang update query para maiwasan ang empty error object
+    const { error: updateError } = await supabase
       .from('messages')
       .update({ is_read: true })
       .eq('sender_id', customerId)
       .eq('receiver_id', 'admin')
       .eq('is_read', false);
+
+    if (updateError) {
+      console.error('Error updating read status:', updateError.message || updateError);
+    }
 
     fetchConversations();
   }, [fetchConversations]);
@@ -210,20 +218,27 @@ export default function AdminDashboard() {
     e.preventDefault();
     if (!chatInput.trim() || !selectedChatUser) return;
 
+    // Sinisigurado natin na makukuha ang tamang ID kahit id o userId ang tawag sa state
+    const recipientId = (selectedChatUser as any).id || (selectedChatUser as any).userId;
+    if (!recipientId) return;
+
     const content = chatInput.trim();
     setChatInput('');
 
     const { error } = await supabase.from('messages').insert([
       {
         sender_id: 'admin',
-        receiver_id: selectedChatUser.id,
+        receiver_id: recipientId,
         content,
+        is_read: false,
       },
     ]);
 
     if (!error) {
-      loadChatMessages(selectedChatUser.id);
+      loadChatMessages(recipientId);
       fetchConversations();
+    } else {
+      console.error('Error sending admin message:', error);
     }
   };
 
@@ -252,8 +267,10 @@ export default function AdminDashboard() {
           if (newMsg.receiver_id === 'admin') {
             setNotifications(prev => [`Bagong mensahe mula kay ${newMsg.customer_name || 'Customer'}`, ...prev]);
             fetchConversations();
-            if (selectedChatUser && selectedChatUser.id === newMsg.sender_id) {
-              loadChatMessages(selectedChatUser.id);
+            
+            const currentSelectedId = selectedChatUser ? ((selectedChatUser as any).id || (selectedChatUser as any).userId) : null;
+            if (currentSelectedId && currentSelectedId === newMsg.sender_id) {
+              loadChatMessages(currentSelectedId);
             }
           }
         }

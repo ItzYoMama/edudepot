@@ -204,51 +204,46 @@ export default function TeacherDashboard() {
   };
 
   // ==================== IMPROVED SEND WITH FULL ERROR LOGGING ====================
-  const handleSendMessage = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newMessage.trim() || !user || sending) return;
+const handleSendMessage = async (e: React.FormEvent) => {
+  e.preventDefault();
+  if (!newMessage.trim() || !user || sending) return;
 
-    setSending(true);
-    setChatError('');
+  setSending(true);
+  setChatError('');
 
-    const content = newMessage.trim();
-    setNewMessage('');
+  const content = newMessage.trim();
+  // Kunin ang pangalan at email mula sa user metadata o user object
+  const customerName = user.user_metadata?.full_name || user.email || 'Customer';
+  const customerEmail = user.email || '';
+  
+  setNewMessage('');
 
-    console.log('Trying to send:', {
-      sender_id: user.id,
-      receiver_id: 'admin',
-      content,
+  const { data, error } = await supabase
+    .from('messages')
+    .insert([
+      {
+        sender_id: user.id,
+        receiver_id: 'admin',
+        content,
+        customer_name: customerName,   // <-- Mahalaga para mabasa ng admin fetchConversations
+        customer_email: customerEmail, // <-- Mahalaga para sa email
+      },
+    ])
+    .select();
+
+  setSending(false);
+
+  if (error) {
+    console.error('Send message error FULL:', error);
+    setChatError('Hindi naipadala: ' + (error.message || JSON.stringify(error)));
+    setNewMessage(content);
+  } else if (data && data[0]) {
+    setMessages((prev) => {
+      if (prev.some((m) => m.id === data[0].id)) return prev;
+      return [...prev, data[0]];
     });
-
-    const { data, error } = await supabase
-      .from('messages')
-      .insert([
-        {
-          sender_id: user.id,
-          receiver_id: 'admin',
-          content,
-        },
-      ])
-      .select();
-
-    setSending(false);
-
-    if (error) {
-      console.error('Send message error FULL:', error);
-      console.error('Error code:', error.code);
-      console.error('Error message:', error.message);
-      console.error('Error details:', error.details);
-      console.error('Error hint:', error.hint);
-      setChatError('Hindi naipadala: ' + (error.message || JSON.stringify(error)));
-      setNewMessage(content);
-    } else if (data && data[0]) {
-      console.log('Success! Message sent:', data[0]);
-      setMessages((prev) => {
-        if (prev.some((m) => m.id === data[0].id)) return prev;
-        return [...prev, data[0]];
-      });
-    }
-  };
+  }
+};
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
